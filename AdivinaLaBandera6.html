@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quiz de Banderas - MapaMundi Edition</title>
+  <!-- Cargar Tailwind CSS desde el CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Roboto para mayor legibilidad -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      /* Fondo elegante: degradado moderno */
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      min-height: 100vh;
+    }
+    /* Animación flash para el overlay de resultado */
+    @keyframes flash {
+      0% { opacity: 0; transform: scale(0); }
+      50% { opacity: 1; transform: scale(2); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .flash {
+      animation: flash 0.8s ease-out forwards;
+    }
+    /* Overlay de resultado centrado */
+    #result-overlay {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 50;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="flex items-center justify-center">
+  <!-- Contenedor principal del juego -->
+  <div id="game-container" class="bg-white bg-opacity-90 shadow-2xl rounded-lg p-6 max-w-md w-full mx-4"></div>
+
+  <!-- Overlay para mostrar el resultado en grande en el centro -->
+  <div id="result-overlay" class="flex items-center justify-center"></div>
+
+  <!-- Elementos de audio para los sonidos -->
+  <audio id="correctSound" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg" preload="auto"></audio>
+  <audio id="incorrectSound" src="https://actions.google.com/sounds/v1/cartoon/sad_trombone.ogg" preload="auto"></audio>
+
+  <script>
+    // Banderas para cada modo (mezcla global de países)
+    const normalFlags = [
+      { country: "Estados Unidos", url: "https://flagcdn.com/256x192/us.png" },
+      { country: "Canadá", url: "https://flagcdn.com/256x192/ca.png" },
+      { country: "Reino Unido", url: "https://flagcdn.com/256x192/gb.png" },
+      { country: "Brasil", url: "https://flagcdn.com/256x192/br.png" },
+      { country: "Japón", url: "https://flagcdn.com/256x192/jp.png" },
+      { country: "Australia", url: "https://flagcdn.com/256x192/au.png" },
+      { country: "España", url: "https://flagcdn.com/256x192/es.png" },
+      { country: "México", url: "https://flagcdn.com/256x192/mx.png" },
+      { country: "India", url: "https://flagcdn.com/256x192/in.png" },
+      { country: "Alemania", url: "https://flagcdn.com/256x192/de.png" }
+    ];
+
+    const avanzadoFlags = [
+      { country: "Suecia", url: "https://flagcdn.com/256x192/se.png" },
+      { country: "Noruega", url: "https://flagcdn.com/256x192/no.png" },
+      { country: "Italia", url: "https://flagcdn.com/256x192/it.png" },
+      { country: "Argentina", url: "https://flagcdn.com/256x192/ar.png" },
+      { country: "Sudáfrica", url: "https://flagcdn.com/256x192/za.png" },
+      { country: "Egipto", url: "https://flagcdn.com/256x192/eg.png" },
+      { country: "Corea del Sur", url: "https://flagcdn.com/256x192/kr.png" },
+      { country: "Indonesia", url: "https://flagcdn.com/256x192/id.png" },
+      { country: "Rusia", url: "https://flagcdn.com/256x192/ru.png" },
+      { country: "Turquía", url: "https://flagcdn.com/256x192/tr.png" }
+    ];
+
+    const expertoFlags = [
+      { country: "Kazajistán", url: "https://flagcdn.com/256x192/kz.png" },
+      { country: "Moldavia", url: "https://flagcdn.com/256x192/md.png" },
+      { country: "Bután", url: "https://flagcdn.com/256x192/bt.png" },
+      { country: "Omán", url: "https://flagcdn.com/256x192/om.png" },
+      { country: "Nepal", url: "https://flagcdn.com/256x192/np.png" },
+      { country: "Sri Lanka", url: "https://flagcdn.com/256x192/lk.png" },
+      { country: "Camboya", url: "https://flagcdn.com/256x192/kh.png" },
+      { country: "Botswana", url: "https://flagcdn.com/256x192/bw.png" },
+      { country: "Islandia", url: "https://flagcdn.com/256x192/is.png" },
+      { country: "Finlandia", url: "https://flagcdn.com/256x192/fi.png" }
+    ];
+
+    // Variables globales
+    let gameFlags = [];
+    let roundsPlayed = 0;
+    let totalScore = 0;
+    let remainingFlags = [];
+    let currentFlag = null;
+    let timerInterval = null;
+    let roundTimeout = null;
+    let timeRemaining = 10;
+
+    // Comentarios de MapaMundi
+    const mapamundiComments = {
+      correct: [
+        "¡Excelente! 🎉 ¡Sigue así!",
+        "¡Muy bien! 🌟 Ese país es fascinante.",
+        "¡Correcto! 👍 ¡Estás en racha!",
+        "¡Genial! 🚀 ¡Eres un crack en geografía!"
+      ],
+      incorrect: [
+        "¡Vaya, esa no es! 😢",
+        "¡Ups! ❌ Revisa tu mapa de nuevo.",
+        "¡Error! 🤦‍♂️ ¡No te rindas!",
+        "¡Incorrecto! 😔 ¡Aún hay mucho por descubrir!"
+      ],
+      modeSelection: "¡Hola, soy MapaMundi! 🌍 Tu guía en este viaje global. Elige un modo y descubre banderas de todo el planeta. ¡Vamos!"
+    };
+
+    // Función para mezclar un arreglo
+    function shuffle(array) {
+      return array.sort(() => Math.random() - 0.5);
+    }
+
+    // Pantalla de selección de modo con MapaMundi
+    function showModeSelection() {
+      const container = document.getElementById("game-container");
+      container.innerHTML = `
+        <div class="text-center">
+          <div id="mapamundi-character" class="mb-4 flex flex-col items-center">
+            <img src="https://media.giphy.com/media/l0ExvMqM8J1E0xNT2/giphy.gif" alt="MapaMundi" class="rounded-full mb-2 w-32 h-32 object-cover">
+            <p class="text-xl text-gray-700">${mapamundiComments.modeSelection} 🤗</p>
+          </div>
+          <h1 class="text-4xl font-bold mb-6 text-blue-600">Selecciona el Modo</h1>
+          <div class="flex flex-col space-y-4 items-center">
+            <button id="normalMode" class="w-64 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded shadow transition duration-300">Modo Normal</button>
+            <button id="avanzadoMode" class="w-64 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded shadow transition duration-300">Modo Avanzado</button>
+            <button id="expertoMode" class="w-64 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded shadow transition duration-300">Modo Experto</button>
+          </div>
+        </div>
+      `;
+      document.getElementById("normalMode").addEventListener("click", () => {
+        gameFlags = normalFlags;
+        startGame();
+      });
+      document.getElementById("avanzadoMode").addEventListener("click", () => {
+        gameFlags = avanzadoFlags;
+        startGame();
+      });
+      document.getElementById("expertoMode").addEventListener("click", () => {
+        gameFlags = expertoFlags;
+        startGame();
+      });
+    }
+
+    // Inicia el juego: resetea puntaje y muestra la interfaz principal
+    function startGame() {
+      roundsPlayed = 0;
+      totalScore = 0;
+      updateScoreDisplay();
+      remainingFlags = shuffle([...gameFlags]);
+      const container = document.getElementById("game-container");
+      container.innerHTML = `
+        <div class="mb-4 text-center">
+          <h1 class="text-4xl font-bold mb-2 text-blue-600">¡Quiz de Banderas! 🌐</h1>
+          <div class="flex justify-around text-xl">
+            <div>Tiempo: <span id="timer">10 s</span></div>
+            <div>Puntos: <span id="score">${totalScore}</span></div>
+          </div>
+        </div>
+        <div id="flag-container" class="mb-4 flex items-center justify-center overflow-hidden rounded-lg">
+          <!-- La bandera se mostrará centrada -->
+        </div>
+        <div id="options" class="grid grid-cols-2 gap-4 mb-4"></div>
+        <div id="mapamundi-container" class="mt-4 p-4 bg-gray-100 rounded-lg flex items-center space-x-4">
+          <img src="https://media.giphy.com/media/l0ExvMqM8J1E0xNT2/giphy.gif" alt="MapaMundi" class="rounded-full w-20 h-20 object-cover">
+          <div id="mapamundi-comment" class="text-lg text-gray-700">¡Buena suerte, aventurero!</div>
+        </div>
+      `;
+      loadNewFlag();
+    }
+
+    // Carga una nueva bandera (o finaliza tras 10 rondas)
+    function loadNewFlag() {
+      clearInterval(timerInterval);
+      clearTimeout(roundTimeout);
+      if (roundsPlayed >= 10) {
+        showFinalResult();
+        return;
+      }
+      timeRemaining = 10;
+      updateTimerDisplay();
+      currentFlag = remainingFlags.shift();
+      // Mostrar la bandera centrada (sin alterar su tamaño natural)
+      document.getElementById("flag-container").innerHTML = `
+        <img src="${currentFlag.url}" alt="Bandera de ${currentFlag.country}" class="block mx-auto">
+      `;
+      let wrongOptions = gameFlags.filter(flag => flag.country !== currentFlag.country);
+      wrongOptions = shuffle(wrongOptions).slice(0, 3);
+      const optionsList = shuffle([currentFlag, ...wrongOptions]);
+      const optionsDiv = document.getElementById("options");
+      optionsDiv.innerHTML = "";
+      optionsList.forEach(option => {
+        const button = document.createElement("button");
+        button.innerText = option.country;
+        button.className = "bg-blue-200 hover:bg-blue-300 text-blue-900 font-bold py-3 px-4 rounded shadow transition duration-300";
+        button.onclick = () => selectAnswer(option);
+        optionsDiv.appendChild(button);
+      });
+      startTimer();
+    }
+
+    // Temporizador de cuenta regresiva
+    function startTimer() {
+      clearInterval(timerInterval);
+      timeRemaining = 10;
+      updateTimerDisplay();
+      timerInterval = setInterval(() => {
+        timeRemaining--;
+        updateTimerDisplay();
+        if (timeRemaining <= 0) {
+          clearInterval(timerInterval);
+          disableOptions();
+          showResult(false);
+        }
+      }, 1000);
+    }
+
+    function updateTimerDisplay() {
+      document.getElementById("timer").innerText = timeRemaining + " s";
+    }
+
+    // Deshabilita botones de respuesta
+    function disableOptions() {
+      const buttons = document.querySelectorAll("#options button");
+      buttons.forEach(button => button.disabled = true);
+    }
+
+    // Procesa la respuesta del usuario
+    function selectAnswer(selectedOption) {
+      if (document.getElementById("result-overlay").innerText !== "") return;
+      clearInterval(timerInterval);
+      disableOptions();
+      if (selectedOption.country === currentFlag.country) {
+        showResult(true);
+        const points = Math.floor((timeRemaining / 10) * 1000);
+        totalScore += points;
+        updateMapamundiComment(true);
+      } else {
+        showResult(false);
+        updateMapamundiComment(false);
+      }
+      updateScoreDisplay();
+    }
+
+    function updateScoreDisplay() {
+      const scoreElem = document.getElementById("score");
+      if (scoreElem) scoreElem.innerText = totalScore;
+    }
+
+    // Muestra el overlay de resultado (emoji, gif, etc.) y lo deja 2 segundos
+    function showResult(isCorrect) {
+      const overlay = document.getElementById("result-overlay");
+      let messageText = "";
+      let gif = "";
+      if (isCorrect) {
+        messageText = "¡ACIERTO! 🎉";
+        gif = '<img src="https://media.giphy.com/media/111ebonMs90YLu/giphy.gif" alt="Celebration" class="w-32 mx-auto">';
+        let sound = document.getElementById("correctSound");
+        sound.currentTime = 0;
+        sound.play();
+      } else {
+        messageText = "¡FALLASTE! 😢";
+        gif = '<img src="https://media.giphy.com/media/3o6Zt481isNVuQI1l6/giphy.gif" alt="Failure" class="w-32 mx-auto">';
+        let sound = document.getElementById("incorrectSound");
+        sound.currentTime = 0;
+        sound.play();
+      }
+      overlay.innerHTML = `<div class="flash text-7xl font-extrabold ${isCorrect ? 'text-green-500' : 'text-red-500'} text-center">${messageText}<br>${gif}</div>`;
+      roundsPlayed++;
+      roundTimeout = setTimeout(() => {
+        overlay.innerHTML = "";
+        loadNewFlag();
+      }, 2000); // 2 segundos de espera para apreciar los emojis y gifs
+    }
+
+    // Muestra el resultado final y un comentario divertido
+    function showFinalResult() {
+      clearInterval(timerInterval);
+      document.getElementById("game-container").innerHTML = `
+        <div class="text-center">
+          <h2 class="text-5xl font-bold mb-6 text-purple-700">¡Fin del Juego! 🎊</h2>
+          <p class="text-3xl mb-6">Tu puntaje final es: ${totalScore} puntos</p>
+          <p class="text-2xl mb-6">${getFunnyComment(totalScore)}</p>
+          <button id="restart-button" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded shadow transition duration-300">
+            Reiniciar Juego
+          </button>
+        </div>
+      `;
+      document.getElementById("restart-button").addEventListener("click", showModeSelection);
+    }
+
+    // Comentario final según el puntaje obtenido
+    function getFunnyComment(score) {
+      if (score >= 8000) {
+        return "¡Eres un genio mundial! 🌟 MapaMundi está impresionado.";
+      } else if (score >= 4000) {
+        return "¡No está mal! 👍 Pero MapaMundi cree que puedes mejorar.";
+      } else {
+        return "¡Ay, ay! 😅 MapaMundi dice: '¡Necesitas repasar tu geografía!'";
+      }
+    }
+
+    // Actualiza el comentario de MapaMundi en cada ronda
+    function updateMapamundiComment(isCorrect) {
+      const commentElem = document.getElementById("mapamundi-comment");
+      if (isCorrect) {
+        commentElem.innerText = mapamundiComments.correct[Math.floor(Math.random() * mapamundiComments.correct.length)];
+      } else {
+        commentElem.innerText = mapamundiComments.incorrect[Math.floor(Math.random() * mapamundiComments.incorrect.length)];
+      }
+    }
+
+    // Inicia mostrando la selección de modo
+    showModeSelection();
+  </script>
+
+  <!-- Fuentes de referencia:
+       - Tailwind CSS: https://tailwindcss.com/docs/installation/play-cdn
+       - Google Fonts (Roboto): https://fonts.google.com/specimen/Roboto
+       - FlagCDN: https://flagcdn.com/
+       - Giphy: https://giphy.com/
+       - Sonidos: https://actions.google.com/sounds/v1/cartoon/  -->
+</body>
+</html>
